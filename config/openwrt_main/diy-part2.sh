@@ -45,11 +45,11 @@ fi
 
 # ------------------------------- Additional customizations -------------------------------
 #
-# Add luci-app-amlogic[cite: 1]
+# Add luci-app-amlogic
 rm -rf package/luci-app-amlogic
 git clone -b main https://github.com/ophub/luci-app-amlogic.git package/luci-app-amlogic
 #
-# Comprehensive Sound Support (HDMI Audio Extractor, Optical/SPDIF, USB Audio & ALSA core)
+# Comprehensive Sound Support (HDMI Audio, Optical/SPDIF, USB Audio & ALSA core)
 # 1. Force-enable Sound drivers in Target Kernel Config
 KERNEL_CONFIG=$(ls target/linux/amlogic/config-* | head -n 1)
 if [ -f "$KERNEL_CONFIG" ]; then
@@ -73,7 +73,13 @@ CONFIG_SND_MESON_G12A_TOHDMITX=y
 EOF
 fi
 
-# 2. Add required sound kernel modules and ALSA utils to OpenWrt .config
+# 2. Force OpenWrt .config to accept sound modules and ALSA utils
+sed -i '/CONFIG_PACKAGE_kmod-sound-core/d' .config
+sed -i '/CONFIG_PACKAGE_kmod-sound-soc-core/d' .config
+sed -i '/CONFIG_PACKAGE_kmod-usb-audio/d' .config
+sed -i '/CONFIG_PACKAGE_alsa-lib/d' .config
+sed -i '/CONFIG_PACKAGE_alsa-utils/d' .config
+
 cat << 'EOF' >> .config
 CONFIG_PACKAGE_kmod-sound-core=y
 CONFIG_PACKAGE_kmod-sound-soc-core=y
