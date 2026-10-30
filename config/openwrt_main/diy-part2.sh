@@ -49,6 +49,11 @@ fi
 rm -rf package/luci-app-amlogic
 git clone -b main https://github.com/ophub/luci-app-amlogic.git package/luci-app-amlogic
 #
+# Add audio support and squeezelite-full for Tronsmart audio playback
+echo 'CONFIG_PACKAGE_kmod-sound-core=y' >> .config
+echo 'CONFIG_PACKAGE_kmod-usb-audio=y' >> .config
+echo 'CONFIG_PACKAGE_squeezelite-full=y' >> .config
+#
 # Apply patches
 # git apply ../config/patches/{0001*,0002*}.patch --directory=feeds/luci
 #
