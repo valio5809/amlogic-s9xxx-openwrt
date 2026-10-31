@@ -43,11 +43,15 @@ fi
 
 # ------------------------------- Additional customizations -------------------------------
 #
+# Премахване на пакети с рекурсивни зависимости, които чупят дефолтната конфигурация в openwrt_main
+rm -rf feeds/packages/net/fwknopd
+rm -rf feeds/video/frameworks/qt5
+
 # Add luci-app-amlogic
 rm -rf package/luci-app-amlogic
 git clone -b main https://github.com/ophub/luci-app-amlogic.git package/luci-app-amlogic
 
-# Force-enable Comprehensive Sound Support directly into .config so they persist through defconfig
+# Force-enable Comprehensive Sound Support директно в .config за гарантирано прихващане
 cat << 'EOF' >> .config
 
 # --- Forced Audio Subsystem & ALSA Support ---
