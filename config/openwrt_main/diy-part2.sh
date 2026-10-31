@@ -50,9 +50,9 @@ rm -rf package/luci-app-amlogic
 git clone -b main https://github.com/ophub/luci-app-amlogic.git package/luci-app-amlogic
 #
 # Comprehensive Sound Support (HDMI Audio, Optical/SPDIF, USB Audio & ALSA core)
-# 1. Force-enable Sound drivers in Target Kernel Config
-KERNEL_CONFIG=$(ls target/linux/amlogic/config-* | head -n 1)
-if [ -f "$KERNEL_CONFIG" ]; then
+# 1. Force-enable Sound drivers in Target Kernel Config (Search recursively to ensure the file is found)
+KERNEL_CONFIG=$(find . -path "*/target/linux/amlogic/config-*" | head -n 1)
+if [ -n "$KERNEL_CONFIG" ] && [ -f "$KERNEL_CONFIG" ]; then
     echo "Configuring full audio subsystem flags in: $KERNEL_CONFIG"
     sed -i '/CONFIG_SOUND/d' "$KERNEL_CONFIG"
     sed -i '/CONFIG_SND/d' "$KERNEL_CONFIG"
@@ -71,6 +71,8 @@ CONFIG_SND_SOC_DMAENGINE_PCM=y
 CONFIG_SND_MESON_AXG_SOUND_CARD=y
 CONFIG_SND_MESON_G12A_TOHDMITX=y
 EOF
+else
+    echo "WARNING: Kernel config file for amlogic not found during diy-part2 execution, appending to global config or skipping kernel file patch."
 fi
 
 # 2. Force OpenWrt .config to accept sound modules and ALSA utils
