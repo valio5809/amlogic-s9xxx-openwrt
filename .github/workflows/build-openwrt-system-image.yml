@@ -1,6 +1,6 @@
 #============================================================================================
 # https://github.com/ophub/amlogic-s9xxx-openwrt
-# Description: Build OpenWrt system image from source (Adapted for Self-Hosted SSD Runner)
+# Description: Build OpenWrt system image from source (Configured for GitHub Cloud Runners)
 #============================================================================================
 
 name: Build OpenWrt system image
@@ -345,11 +345,10 @@ on:
 
 env:
   TZ: Etc/UTC
-  CCACHE_DIR: /mnt/fast-ssd/ccache
 
 jobs:
   setup:
-    runs-on: self-hosted
+    runs-on: ubuntu-22.04
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -365,7 +364,7 @@ jobs:
 
   build:
     needs: setup
-    runs-on: self-hosted
+    runs-on: ubuntu-22.04
     if: ${{ github.event.repository.owner.id == github.event.sender.id }}
     permissions:
       contents: write
@@ -397,14 +396,6 @@ jobs:
           date -u
           echo "status=success" >> ${GITHUB_OUTPUT}
 
-      - name: Setup SSD storage directory
-        id: disk
-        run: |
-          sudo mkdir -p /mnt/fast-ssd/ccache
-          sudo chown -R $USER:$USER /mnt/fast-ssd
-          df -Th
-          echo "status=success" >> ${GITHUB_OUTPUT}
-
       - name: Clone source code [ ${{ matrix.branch }} ]
         id: codes
         if: ${{ steps.init.outputs.status == 'success' && !cancelled() }}
@@ -423,8 +414,8 @@ jobs:
           REPO_NAME="${source_branch_input%_*}"
           REPO_BRANCH="${source_branch_input##*_}"
 
-          mkdir -p /mnt/fast-ssd/openwrt-src
-          cd /mnt/fast-ssd/openwrt-src
+          mkdir -p openwrt-src
+          cd openwrt-src
           
           if [ -d ".git" ]; then
               git fetch origin ${REPO_BRANCH}
@@ -433,7 +424,7 @@ jobs:
               git clone -q --single-branch --depth=1 --branch=${REPO_BRANCH} ${REPO_URL} .
           fi
 
-          ln -sf /mnt/fast-ssd/openwrt-src ${{ github.workspace }}/openwrt
+          ln -sf ${PWD} ${{ github.workspace }}/openwrt
 
           echo "build_tag=OpenWrt_${{ matrix.branch }}_${{ inputs.openwrt_storage }}_$(date +"%Y.%m")" >> ${GITHUB_ENV}
           echo "REPO_URL=${REPO_URL}" >> ${GITHUB_ENV}
@@ -490,14 +481,8 @@ jobs:
         id: compile
         run: |
           cd openwrt/
-          echo -e "Compiling with $(nproc) threads on SSD"
+          echo -e "Compiling with $(nproc) threads"
           make -j$(($(nproc) + 1)) V=s || make -j1 || make -j1 V=s
-
-          echo -e "ccache statistics:"
-          ccache -s 2>/dev/null || true
-          echo -e "ccache directory size:"
-          du -sh /mnt/fast-ssd/ccache 2>/dev/null || echo "No ccache directory found."
-
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: Clean up build files and reclaim disk space
