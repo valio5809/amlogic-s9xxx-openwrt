@@ -6,30 +6,28 @@
 # Source code repository: https://github.com/openwrt/openwrt / Branch: main
 #========================================================================================================================
 
-# ------------------------------- Main source configuration -------------------------------
-#
-# Set the default LAN IP address
+# 1. Set the default LAN IP address
 default_ip="192.168.1.1"
 ip_regex="^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
-# Override default IP if a valid custom IP is provided as the first argument
 [[ -n "${1}" && "${1}" != "${default_ip}" && "${1}" =~ ${ip_regex} ]] && {
     echo "Modify default IP address to: ${1}"
     sed -i "/lan) ipad=\${ipaddr:-/s/\${ipaddr:-\"[^\"]*\"}/\${ipaddr:-\"${1}\"}/" package/base-files/*/bin/config_generate
 }
 
-# Set the default password for the 'root' user (change empty password to 'password')
+# 2. Set the default password for the 'root' user
 sed -i 's/root:::0:99999:7:::/root:$1$V4UetPzk$CYXluq4wUazHjmCDBCqXF.::0:99999:7:::/g' package/base-files/files/etc/shadow
 
-# Append source repository information to etc/openwrt_release (добавен е час и минута за уникалност на ревизията)
+# 3. Append source repository information and timestamp to release
 sed -i "s|DISTRIB_REVISION='.*'|DISTRIB_REVISION='R$(date +%Y.%m.%d-%H%M)'|g" package/base-files/files/etc/openwrt_release
 echo "DISTRIB_SOURCEREPO='github.com/openwrt/openwrt'" >>package/base-files/files/etc/openwrt_release
 echo "DISTRIB_SOURCECODE='openwrt'" >>package/base-files/files/etc/openwrt_release
 echo "DISTRIB_SOURCEBRANCH='main'" >>package/base-files/files/etc/openwrt_release
 
-# Configure ccache for build acceleration
+# 4. Configure ccache
 sed -i '/CONFIG_DEVEL/d' .config
 sed -i '/CONFIG_CCACHE/d' .config
-if [[ "${2}" == "true" ]]; then
+if [[ "${2}" == "true" ]]
+then
     echo "CONFIG_DEVEL=y" >>.config
     echo "CONFIG_CCACHE=y" >>.config
     echo 'CONFIG_CCACHE_DIR="$(TOPDIR)/.ccache"' >>.config
@@ -38,42 +36,45 @@ else
     echo "# CONFIG_CCACHE is not set" >>.config
     echo 'CONFIG_CCACHE_DIR=""' >>.config
 fi
-#
-# ------------------------------- Main source configuration ends -------------------------------
 
-# ------------------------------- Additional customizations -------------------------------
-#
-# Премахване на пакети с рекурсивни зависимости, които чупят дефолтната конфигурация в openwrt_main
+# 5. Remove conflicting packages that break defconfig in main branch
 rm -rf feeds/packages/net/fwknopd
 rm -rf feeds/video/frameworks/qt5
 
-# Add luci-app-amlogic
+# 6. Add luci-app-amlogic
 rm -rf package/luci-app-amlogic
 git clone -b main https://github.com/ophub/luci-app-amlogic.git package/luci-app-amlogic
 
-# Force-enable Comprehensive Sound Support директно в .config за гарантирано прихващане
-cat << 'EOF' >> .config
+# 7. Post-config Audio Injection: Ensure ALSA and Sound support are appended to any generated config template
+TARGET_CONFIG_DIR="target/linux/amlogic"
+if [ -d "$TARGET_CONFIG_DIR" ]; then
+    echo "Injecting audio defaults into amlogic target configuration templates..."
+    for cfg in "$TARGET_CONFIG_DIR"/config-*; do
+        if [ -f "$cfg" ]; then
+            echo "Patching target kernel config: $cfg"
+            echo "CONFIG_SOUND=y" >> "$cfg"
+            echo "CONFIG_SND=y" >> "$cfg"
+            echo "CONFIG_SND_TIMER=y" >> "$cfg"
+            echo "CONFIG_SND_PCM=y" >> "$cfg"
+            echo "CONFIG_SND_HWDEP=y" >> "$cfg"
+            echo "CONFIG_SND_RAWMIDI=y" >> "$cfg"
+            echo "CONFIG_SND_USB=y" >> "$cfg"
+            echo "CONFIG_SND_USB_AUDIO=y" >> "$cfg"
+            echo "CONFIG_SND_SOC=y" >> "$cfg"
+            echo "CONFIG_SND_SOC_DMAENGINE_PCM=y" >> "$cfg"
+            echo "CONFIG_SND_MESON_AXG_SOUND_CARD=y" >> "$cfg"
+            echo "CONFIG_SND_MESON_G12A_TOHDMITX=y" >> "$cfg"
+        fi
+    done
+fi
 
-# --- Forced Audio Subsystem & ALSA Support ---
+# Also force user-space packages into global config target
+cat << 'EOF' >> .config
 CONFIG_PACKAGE_kmod-sound-core=y
 CONFIG_PACKAGE_kmod-sound-soc-core=y
 CONFIG_PACKAGE_kmod-usb-audio=y
 CONFIG_PACKAGE_alsa-lib=y
 CONFIG_PACKAGE_alsa-utils=y
-CONFIG_SOUND=y
-CONFIG_SND=y
-CONFIG_SND_TIMER=y
-CONFIG_SND_PCM=y
-CONFIG_SND_HWDEP=y
-CONFIG_SND_RAWMIDI=y
-CONFIG_SND_USB=y
-CONFIG_SND_USB_AUDIO=y
-CONFIG_SND_SOC=y
-CONFIG_SND_SOC_DMAENGINE_PCM=y
-CONFIG_SND_MESON_AXG_SOUND_CARD=y
-CONFIG_SND_MESON_G12A_TOHDMITX=y
 EOF
 
-echo "Audio configuration successfully injected into .config"
-#
-# ------------------------------- Additional customizations ends -------------------------------
+echo "All custom audio hooks applied successfully."
