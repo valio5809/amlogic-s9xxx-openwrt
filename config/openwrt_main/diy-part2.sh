@@ -27,10 +27,8 @@ echo "DISTRIB_SOURCECODE='openwrt'" >>package/base-files/files/etc/openwrt_relea
 echo "DISTRIB_SOURCEBRANCH='main'" >>package/base-files/files/etc/openwrt_release
 
 # Configure ccache for build acceleration
-# Remove existing ccache settings
 sed -i '/CONFIG_DEVEL/d' .config
 sed -i '/CONFIG_CCACHE/d' .config
-# Apply new ccache configuration
 if [[ "${2}" == "true" ]]; then
     echo "CONFIG_DEVEL=y" >>.config
     echo "CONFIG_CCACHE=y" >>.config
@@ -48,16 +46,16 @@ fi
 # Add luci-app-amlogic
 rm -rf package/luci-app-amlogic
 git clone -b main https://github.com/ophub/luci-app-amlogic.git package/luci-app-amlogic
-#
-# Comprehensive Sound Support (HDMI Audio, Optical/SPDIF, USB Audio & ALSA core)
-# 1. Force-enable Sound drivers in Target Kernel Config (Search recursively to ensure the file is found)
-KERNEL_CONFIG=$(find . -path "*/target/linux/amlogic/config-*" | head -n 1)
-if [ -n "$KERNEL_CONFIG" ] && [ -f "$KERNEL_CONFIG" ]; then
-    echo "Configuring full audio subsystem flags in: $KERNEL_CONFIG"
-    sed -i '/CONFIG_SOUND/d' "$KERNEL_CONFIG"
-    sed -i '/CONFIG_SND/d' "$KERNEL_CONFIG"
-    
-    cat << 'EOF' >> "$KERNEL_CONFIG"
+
+# Force-enable Comprehensive Sound Support directly into .config so they persist through defconfig
+cat << 'EOF' >> .config
+
+# --- Forced Audio Subsystem & ALSA Support ---
+CONFIG_PACKAGE_kmod-sound-core=y
+CONFIG_PACKAGE_kmod-sound-soc-core=y
+CONFIG_PACKAGE_kmod-usb-audio=y
+CONFIG_PACKAGE_alsa-lib=y
+CONFIG_PACKAGE_alsa-utils=y
 CONFIG_SOUND=y
 CONFIG_SND=y
 CONFIG_SND_TIMER=y
@@ -71,26 +69,7 @@ CONFIG_SND_SOC_DMAENGINE_PCM=y
 CONFIG_SND_MESON_AXG_SOUND_CARD=y
 CONFIG_SND_MESON_G12A_TOHDMITX=y
 EOF
-else
-    echo "WARNING: Kernel config file for amlogic not found during diy-part2 execution, appending to global config or skipping kernel file patch."
-fi
 
-# 2. Force OpenWrt .config to accept sound modules and ALSA utils
-sed -i '/CONFIG_PACKAGE_kmod-sound-core/d' .config
-sed -i '/CONFIG_PACKAGE_kmod-sound-soc-core/d' .config
-sed -i '/CONFIG_PACKAGE_kmod-usb-audio/d' .config
-sed -i '/CONFIG_PACKAGE_alsa-lib/d' .config
-sed -i '/CONFIG_PACKAGE_alsa-utils/d' .config
-
-cat << 'EOF' >> .config
-CONFIG_PACKAGE_kmod-sound-core=y
-CONFIG_PACKAGE_kmod-sound-soc-core=y
-CONFIG_PACKAGE_kmod-usb-audio=y
-CONFIG_PACKAGE_alsa-lib=y
-CONFIG_PACKAGE_alsa-utils=y
-EOF
-#
-# Apply patches
-# git apply ../config/patches/{0001*,0002*}.patch --directory=feeds/luci
+echo "Audio configuration successfully injected into .config"
 #
 # ------------------------------- Additional customizations ends -------------------------------
