@@ -1,6 +1,6 @@
 #============================================================================================
 # https://github.com/ophub/amlogic-s9xxx-openwrt
-# Description: Build OpenWrt system image from source
+# Description: Build OpenWrt system image from source (Adapted for Self-Hosted SSD Runner)
 #============================================================================================
 
 name: Build OpenWrt system image
@@ -345,11 +345,11 @@ on:
 
 env:
   TZ: Etc/UTC
-  CCACHE_DIR: /builder/openwrt/.ccache
+  CCACHE_DIR: /mnt/fast-ssd/ccache
 
 jobs:
   setup:
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -365,7 +365,7 @@ jobs:
 
   build:
     needs: setup
-    runs-on: ubuntu-24.04
+    runs-on: self-hosted
     if: ${{ github.event.repository.owner.id == github.event.sender.id }}
     permissions:
       contents: write
@@ -393,52 +393,22 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          docker rmi -f $(docker images -q) 2>/dev/null || true
-          [[ -n "${AGENT_TOOLSDIRECTORY}" ]] && sudo rm -rf "${AGENT_TOOLSDIRECTORY}"
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android 2>/dev/null
-          sudo swapoff -a
-          sudo rm -f /swapfile /mnt/swapfile
-          sudo apt-get -y update
-          sudo apt-get -y purge azure-cli ghc* zulu* llvm* firefox google* dotnet* powershell openjdk* mongodb* moby* || true
-          sudo apt-get -y install $(curl -fsSL https://ophub.org/ubuntu2404-make-openwrt-depends)
-          sudo systemctl daemon-reload
-          #sudo apt-get -y full-upgrade
-          sudo apt-get -y autoremove --purge
-          sudo apt-get clean
-          sudo sed -i '/NVM_DIR/d;/skel/d' /root/{.bashrc,.profile}
-          sudo rm -rf ~/{.cargo,.dotnet,.rustup}
           sudo timedatectl set-timezone "${TZ:-Etc/UTC}"
-          sudo ntpdate ntp.ubuntu.com 0.pool.ntp.org || true
-          sudo timedatectl set-ntp true
           date -u
-          timedatectl status || true
           echo "status=success" >> ${GITHUB_OUTPUT}
 
-      - name: Create virtual disk for extended storage
+      - name: Setup SSD storage directory
         id: disk
         run: |
-          # Get available space in exact GB
-          root_avail=$(df --block-size=1G / | tail -1 | awk '{print $4}')
-          root_size=$(( root_avail - 4 ))
-          [[ "${root_size}" -gt 0 ]] || { echo "Error: Insufficient space on /: ${root_avail}G available"; exit 1; }
-
-          sudo truncate -s "${root_size}"G /root.img
-          build_dev=$(sudo losetup --find --show /root.img)
-          echo "Using /: ${root_size}G"
-
-          sudo mkfs.xfs -f -i sparse=0 -b size=4096 "${build_dev}"
-          sudo mkdir -p /builder
-          sudo mount "${build_dev}" /builder
-          sudo chown -R runner:runner /builder
+          sudo mkdir -p /mnt/fast-ssd/ccache
+          sudo chown -R $USER:$USER /mnt/fast-ssd
           df -Th
           echo "status=success" >> ${GITHUB_OUTPUT}
 
       - name: Clone source code [ ${{ matrix.branch }} ]
         id: codes
-        working-directory: /builder
         if: ${{ steps.init.outputs.status == 'success' && !cancelled() }}
         run: |
-          # Determine the OpenWrt source code repository
           if [[ "${{ matrix.branch }}" =~ ^openwrt ]]; then
               REPO_URL="https://github.com/openwrt/openwrt"
           elif [[ "${{ matrix.branch }}" =~ ^lede ]]; then
@@ -453,15 +423,19 @@ jobs:
           REPO_NAME="${source_branch_input%_*}"
           REPO_BRANCH="${source_branch_input##*_}"
 
-          # Clone the source code repository
-          git clone -q --single-branch --depth=1 --branch=${REPO_BRANCH} ${REPO_URL} openwrt
-          ln -sf /builder/openwrt ${{ github.workspace }}/openwrt
-          ln -sf /builder/openwrt /home/runner/work/_actions/ophub/amlogic-s9xxx-openwrt/main/openwrt
+          mkdir -p /mnt/fast-ssd/openwrt-src
+          cd /mnt/fast-ssd/openwrt-src
+          
+          if [ -d ".git" ]; then
+              git fetch origin ${REPO_BRANCH}
+              git reset --hard origin/${REPO_BRANCH}
+          else
+              git clone -q --single-branch --depth=1 --branch=${REPO_BRANCH} ${REPO_URL} .
+          fi
 
-          # Export build metadata
+          ln -sf /mnt/fast-ssd/openwrt-src ${{ github.workspace }}/openwrt
+
           echo "build_tag=OpenWrt_${{ matrix.branch }}_${{ inputs.openwrt_storage }}_$(date +"%Y.%m")" >> ${GITHUB_ENV}
-          echo -e "REPO_URL: [ ${REPO_URL} ]\nREPO_BRANCH: [ ${REPO_BRANCH} ]\nREPO_NAME: [ ${REPO_NAME} ]"
-          df -hT ${PWD}
           echo "REPO_URL=${REPO_URL}" >> ${GITHUB_ENV}
           echo "REPO_NAME=${REPO_NAME}" >> ${GITHUB_ENV}
           echo "REPO_BRANCH=${REPO_BRANCH}" >> ${GITHUB_ENV}
@@ -500,7 +474,6 @@ jobs:
       - name: Get OpenWrt source commit hash
         id: openwrthash
         run: |
-          # Get the latest source hash from the kernel repository
           repo_path="$(echo "${{ env.REPO_URL }}" | awk -F"github.com/" '{print $2}')"
           api_url="https://api.github.com/repos/${repo_path}/git/ref/heads/${{ env.REPO_BRANCH }}"
           source_hash=$(curl -fsSL -m 20 \
@@ -513,25 +486,17 @@ jobs:
           echo "source_hash=${source_hash}" >> ${GITHUB_ENV}
           echo "status=success" >> ${GITHUB_OUTPUT}
 
-      - name: Cache ccache
-        uses: actions/cache@v5
-        with:
-          path: /builder/openwrt/.ccache
-          key: openwrt-${{ env.REPO_NAME }}-${{ env.source_hash }}
-          restore-keys: |
-            openwrt-${{ env.REPO_NAME }}-
-
       - name: Compile the OpenWrt firmware
         id: compile
         run: |
           cd openwrt/
-          echo -e "Compiling with $(nproc) threads"
+          echo -e "Compiling with $(nproc) threads on SSD"
           make -j$(($(nproc) + 1)) V=s || make -j1 || make -j1 V=s
 
           echo -e "ccache statistics:"
-          ccache -s 2>/dev/null
+          ccache -s 2>/dev/null || true
           echo -e "ccache directory size:"
-          du -sh $(pwd)/.ccache 2>/dev/null || echo "No ccache directory found."
+          du -sh /mnt/fast-ssd/ccache 2>/dev/null || echo "No ccache directory found."
 
           echo "status=success" >> ${GITHUB_OUTPUT}
 
@@ -539,15 +504,11 @@ jobs:
         id: clean
         if: ${{ steps.compile.outputs.status == 'success' && !cancelled() }}
         run: |
-          # Clean up build artifacts and reclaim disk space
           cd openwrt/
           [[ -d "output" ]] || mkdir output
           ls -alh bin/targets/*/*/* || true
           cp -f bin/targets/*/*/*-generic-rootfs.tar.gz output/
           cp -f .config output/config
-          ls -A | grep -vE '^(output|\.ccache)$' | xargs rm -rf || true
-
-          # Export build metadata
           df -hT ${PWD}
           echo "status=success" >> ${GITHUB_OUTPUT}
 
